@@ -106,6 +106,16 @@ class MainPage(BasePage):
         self.WINDOW = 60 * 30
         self.MAXPTS = self.WINDOW // (self.INTERVAL_MS // 1000)
 
+        # Contrôle du disque
+        top_frame = ttk.Frame(self.frame)
+        top_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        ttk.Label(top_frame, text="Disque à monitorer (Stockage) :").pack(side=tk.LEFT, padx=5)
+        drives = [p.mountpoint for p in psutil.disk_partitions()] if hasattr(psutil, 'disk_partitions') else ["C:\\"]
+        self.disk_var = tk.StringVar(value=drives[0] if drives else "C:\\")
+        self.disk_combo = ttk.Combobox(top_frame, textvariable=self.disk_var, values=drives, state="readonly", width=15)
+        self.disk_combo.pack(side=tk.LEFT, padx=5)
+
         # Création des buffers pour les données
         self.ts, self.ram_vals, self.disk_vals = (deque(maxlen=self.MAXPTS) for _ in range(3))
 
@@ -210,9 +220,11 @@ class MainPage(BasePage):
     def get_ram():
         return psutil.virtual_memory().available / (1024 ** 3)
 
-    @staticmethod
-    def get_disk():
-        return psutil.disk_usage(os.path.abspath(os.sep)).free / (1024 ** 3)
+    def get_disk(self):
+        try:
+            return psutil.disk_usage(self.disk_var.get()).free / (1024 ** 3)
+        except Exception:
+            return 0
 
     @staticmethod
     def get_cpu_usage():
@@ -252,18 +264,44 @@ class MainPage(BasePage):
 
 class StoragePage(BasePage):
     def create_widgets(self):
+        from tkinter import filedialog
+        
         # Frame pour les contrôles
         control_frame = ttk.LabelFrame(self.frame, text="Optimisation du stockage")
         control_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # Frame de sélection de chemin
+        path_frame = ttk.Frame(control_frame)
+        path_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Label(path_frame, text="Chemin d'analyse :").pack(side=tk.LEFT, padx=5)
+        
+        # Lister les disques disponibles
+        drives = [p.mountpoint for p in psutil.disk_partitions()] if hasattr(psutil, 'disk_partitions') else ["C:\\"]
+        
+        self.path_var = tk.StringVar(value=drives[0] if drives else "C:\\")
+        self.path_combo = ttk.Combobox(path_frame, textvariable=self.path_var, values=drives, width=30)
+        self.path_combo.pack(side=tk.LEFT, padx=5)
+        
+        def browse_path():
+            selected = filedialog.askdirectory(title="Choisir le dossier d'analyse")
+            if selected:
+                self.path_var.set(selected.replace('/', '\\'))
+                
+        ttk.Button(path_frame, text="Parcourir...", command=browse_path).pack(side=tk.LEFT, padx=5)
+
+        # Frame des boutons d'action
+        btn_frame = ttk.Frame(control_frame)
+        btn_frame.pack(fill=tk.X, padx=5, pady=5)
 
         # Boutons d'action
-        ttk.Button(control_frame, text="Nettoyer WinSxS",
+        ttk.Button(btn_frame, text="Nettoyer WinSxS",
                    command=self.clean_winsxs).pack(side=tk.LEFT, padx=5, pady=5)
 
-        ttk.Button(control_frame, text="Nettoyer Prefetch",
+        ttk.Button(btn_frame, text="Nettoyer Prefetch",
                    command=self.clean_prefetch).pack(side=tk.LEFT, padx=5, pady=5)
 
-        ttk.Button(control_frame, text="Analyser gros fichiers",
+        ttk.Button(btn_frame, text="Analyser gros fichiers",
                    command=self.analyze_large_files).pack(side=tk.LEFT, padx=5, pady=5)
 
         # Zone de résultats
@@ -307,9 +345,10 @@ class StoragePage(BasePage):
                         continue
             return sorted(large_files, key=lambda x: x[1], reverse=True)[:20]
 
-        results = scan_directory("C:\\")
+        analyse_path = self.path_var.get()
+        results = scan_directory(analyse_path)
         self.result_text.delete(1.0, tk.END)
-        self.result_text.insert(tk.END, "Les 20 plus gros fichiers:\n\n")
+        self.result_text.insert(tk.END, f"Les 20 plus gros fichiers dans {analyse_path} :\n\n")
         for path, size in results:
             size_gb = size / (1024 ** 3)
             self.result_text.insert(tk.END, f"{path}: {size_gb:.2f} GB\n")
